@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import request from 'supertest';
 import app from '../src/app.js';
 import { pedidos } from '../src/data/pedidos.js';
+import { repartidores } from '../src/db.js';
 
 const BASE = '/api/metricas';
 
@@ -194,5 +195,44 @@ test('modulo de metricas', async (t) => {
       porRepartidor.find((r) => r.repartidorId === '2'),
       { repartidorId: '2', repartidor: 'Carlos Ruiz', entregas: 1 },
     );
+  });
+
+  await t.test('GET /api/metricas: las entregas de un repartidor dado de baja siguen contando en porRepartidor', async () => {
+    // El pliego lo exige explicitamente: un repartidor con baja logica
+    // (estado 'inactivo' en src/db.js, no hay borrado fisico) tiene que
+    // seguir contando sus entregas pasadas en las metricas del turno.
+    // calcularMetricas() arma porRepartidor recorriendo `pedidos` y usando
+    // el repartidorId/repartidor ya guardados en cada pedido entregado: no
+    // importa `repartidores` ni mira su estado. Este test fija la baja de
+    // forma explicita (en vez de asumir la del seed) para no depender de
+    // un dato que podria cambiar en src/db.js.
+    pedidos.length = 0;
+    const repartidorDadoDeBaja = repartidores.find((r) => r.id === '3');
+    repartidorDadoDeBaja.estado = 'inactivo';
+
+    pedidos.push(
+      pedidoBase({
+        id: 'entrega-repartidor-baja',
+        estado: 'entregado',
+        importe: 1500,
+        repartidorId: repartidorDadoDeBaja.id,
+        repartidor: repartidorDadoDeBaja.nombre,
+        horaAsignacion: '09:00',
+        horaEntrega: '09:20',
+      }),
+    );
+
+    const res = await request(app).get(BASE);
+
+    assert.equal(res.status, 200);
+    const entradaRepartidor = res.body.porRepartidor.find(
+      (r) => r.repartidorId === repartidorDadoDeBaja.id,
+    );
+    assert.ok(
+      entradaRepartidor,
+      'la entrega de un repartidor dado de baja tiene que seguir apareciendo en porRepartidor',
+    );
+    assert.equal(entradaRepartidor.entregas, 1);
+    assert.equal(entradaRepartidor.repartidor, repartidorDadoDeBaja.nombre);
   });
 });
