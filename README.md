@@ -46,3 +46,19 @@ proxy.
 
 CORS habilitado para cualquier origen, para simplificar el uso sin proxy
 (por ejemplo con `npm run preview` del front).
+
+## Modulo /api/pedidos (nuevo, en migracion)
+
+`src/app.js` es un segundo punto de entrada (`npm run start:api`) organizado
+por recurso: `src/data/pedidos.js` (semilla), `src/controllers/pedidos.controller.js`
+y `src/routes/pedidos.routes.js`, montado bajo `/api/pedidos` con los mismos
+verbos que `/pedidos` (alta, `asignar`, `en-camino`, `entregar`, `liberar`,
+`cancelar` con `motivo`). Reutiliza los repartidores de `src/db.js` para
+`asignar`/`liberar`, pero tiene su propia semilla de pedidos (15, repartidos
+en los 4 estados, con `horaAsignacion` y uno demorado).
+
+Hoy convive con `server.js` sin reemplazarlo: `despacho2-front` sigue
+apuntando a `/pedidos` (sin prefijo) via el proxy de Vite, asi que
+`start`/`dev` siguen levantando `server.js`. Falta decidir si esto reemplaza
+a `server.js` (y entonces migrar tambien repartidores/metricas a `/api` y
+actualizar el proxy del front) o si se mantienen los dos.
