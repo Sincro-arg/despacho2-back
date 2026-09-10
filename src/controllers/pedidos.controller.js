@@ -101,6 +101,7 @@ export async function asignarPedido(req, res, id) {
 
   const rep = repartidores.find((r) => String(r.id) === String(body.repartidorId));
   if (!rep) return enviarError(res, 404, 'Repartidor no encontrado');
+  if (rep.estado !== 'activo') return enviarError(res, 409, 'El repartidor esta inactivo');
   if (!rep.libre) return enviarError(res, 409, 'El repartidor ya no esta libre');
 
   pedido.estado = 'asignado';

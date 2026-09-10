@@ -137,6 +137,28 @@ test('modulo de pedidos', async (t) => {
     assert.match(res.body.mensaje, /Repartidor no encontrado/);
   });
 
+  await t.test('asignar: repartidor inactivo (baja logica) devuelve 409', async () => {
+    const alta = await request(app).post(BASE).send({
+      cliente: 'Cliente Repartidor Inactivo',
+      direccion: 'Calle Inactivo 1',
+      zona: 'Centro',
+      importe: 500,
+    });
+
+    // repartidor '3' (Lucia Fernandez) esta dado de baja (estado 'inactivo') en la semilla,
+    // aunque figure libre=true
+    const res = await request(app)
+      .post(`${BASE}/${alta.body.id}/asignar`)
+      .send({ repartidorId: '3' });
+
+    assert.equal(res.status, 409);
+    assert.match(res.body.mensaje, /inactivo/);
+
+    // el pedido se queda pendiente: la asignacion no se aplico
+    const listado = await request(app).get(`${BASE}?estado=pendiente`);
+    assert.ok(listado.body.some((p) => p.id === alta.body.id));
+  });
+
   await t.test('asignar: sin repartidorId devuelve 400', async () => {
     const res = await request(app)
       .post(`${BASE}/${idRepartidorInexistente}/asignar`)
@@ -189,10 +211,10 @@ test('modulo de pedidos', async (t) => {
   });
 
   await t.test('liberar: camino feliz vuelve el pedido a "pendiente" y libera al repartidor', async () => {
-    // repartidor '3' (Lucia) esta libre en la semilla
+    // repartidor '2' (Carlos) quedo libre en el subtest de "entregar"
     const asignado = await request(app)
       .post(`${BASE}/${idRepartidorOcupado}/asignar`)
-      .send({ repartidorId: '3' });
+      .send({ repartidorId: '2' });
     assert.equal(asignado.status, 200);
 
     const res = await request(app).post(`${BASE}/${idRepartidorOcupado}/liberar`);
@@ -202,7 +224,7 @@ test('modulo de pedidos', async (t) => {
     assert.equal(res.body.repartidor, null);
     assert.equal(res.body.horaAsignacion, null);
 
-    // repartidor '3' quedo libre otra vez
+    // repartidor '2' quedo libre otra vez
     const alta = await request(app).post(BASE).send({
       cliente: 'Chequeo repartidor liberado 2',
       direccion: 'Calle Chequeo 2',
@@ -211,7 +233,7 @@ test('modulo de pedidos', async (t) => {
     });
     const reasignado = await request(app)
       .post(`${BASE}/${alta.body.id}/asignar`)
-      .send({ repartidorId: '3' });
+      .send({ repartidorId: '2' });
     assert.equal(reasignado.status, 200);
     await request(app).post(`${BASE}/${alta.body.id}/liberar`);
   });
