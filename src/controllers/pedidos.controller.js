@@ -50,6 +50,14 @@ function liberarRepartidorDe(pedido) {
   if (rep) rep.libre = true;
 }
 
+function exigirEstado(res, pedido, estadoEsperado, mensaje) {
+  if (pedido.estado !== estadoEsperado) {
+    enviarError(res, 409, mensaje ?? `El pedido esta en estado '${pedido.estado}', se esperaba '${estadoEsperado}'`);
+    return false;
+  }
+  return true;
+}
+
 export async function listarPedidos(req, res, url) {
   const estado = url.searchParams.get('estado');
   const resultado = estado ? pedidos.filter((p) => p.estado === estado) : pedidos;
@@ -73,6 +81,7 @@ export async function crearPedido(req, res) {
     repartidorId: null,
     repartidor: null,
     horaAsignacion: null,
+    horaEntrega: null,
     demorado: false,
   };
   pedidos.push(nuevo);
@@ -82,10 +91,14 @@ export async function crearPedido(req, res) {
 export async function asignarPedido(req, res, id) {
   const pedido = buscarPedido(id);
   if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (!exigirEstado(res, pedido, 'pendiente', 'El pedido no esta pendiente')) return;
 
   const body = await leerCuerpo(req);
+  if (!body.repartidorId) return enviarError(res, 400, 'Falta el repartidorId');
+
   const rep = repartidores.find((r) => String(r.id) === String(body.repartidorId));
   if (!rep) return enviarError(res, 404, 'Repartidor no encontrado');
+  if (!rep.libre) return enviarError(res, 409, 'El repartidor ya no esta libre');
 
   pedido.estado = 'asignado';
   pedido.repartidorId = rep.id;
@@ -98,6 +111,7 @@ export async function asignarPedido(req, res, id) {
 export async function marcarEnCamino(req, res, id) {
   const pedido = buscarPedido(id);
   if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (!exigirEstado(res, pedido, 'asignado', 'El pedido no esta asignado')) return;
   pedido.estado = 'en_camino';
   return enviarJson(res, 200, pedido);
 }
@@ -105,7 +119,9 @@ export async function marcarEnCamino(req, res, id) {
 export async function marcarEntregado(req, res, id) {
   const pedido = buscarPedido(id);
   if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (!exigirEstado(res, pedido, 'en_camino', 'El pedido no esta en camino')) return;
   pedido.estado = 'entregado';
+  pedido.horaEntrega = horaActual();
   liberarRepartidorDe(pedido);
   return enviarJson(res, 200, pedido);
 }
@@ -113,6 +129,7 @@ export async function marcarEntregado(req, res, id) {
 export async function liberarPedido(req, res, id) {
   const pedido = buscarPedido(id);
   if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (!exigirEstado(res, pedido, 'asignado', 'El pedido no esta asignado')) return;
   liberarRepartidorDe(pedido);
   pedido.estado = 'pendiente';
   pedido.repartidorId = null;
@@ -124,6 +141,9 @@ export async function liberarPedido(req, res, id) {
 export async function cancelarPedido(req, res, id) {
   const pedido = buscarPedido(id);
   if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (pedido.estado === 'entregado') {
+    return enviarError(res, 409, 'No se puede cancelar un pedido entregado');
+  }
   const body = await leerCuerpo(req);
   if (!body.motivo) {
     return enviarError(res, 400, 'Falta el motivo de cancelacion');

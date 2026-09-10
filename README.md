@@ -33,11 +33,16 @@ proxy.
 
 - `GET /pedidos?estado=pendiente|asignado|en_camino|entregado`
 - `POST /pedidos` — body `{ cliente, telefono, direccion, zona, importe, items }`
-- `POST /pedidos/:id/asignar` — body `{ repartidorId }`
-- `POST /pedidos/:id/en-camino`
-- `POST /pedidos/:id/entregar`
-- `POST /pedidos/:id/liberar`
-- `POST /pedidos/:id/cancelar` — body `{ motivo }`
+- `POST /pedidos/:id/asignar` — body `{ repartidorId }`. Requiere pedido
+  `pendiente` y repartidor `libre` (409 si no); pasa el pedido a `asignado`,
+  guarda `horaAsignacion` y pone al repartidor no libre.
+- `POST /pedidos/:id/en-camino` — requiere pedido `asignado` (409 si no).
+- `POST /pedidos/:id/entregar` — requiere pedido `en_camino` (409 si no);
+  guarda `horaEntrega` y libera al repartidor.
+- `POST /pedidos/:id/liberar` — requiere pedido `asignado` (409 si no); lo
+  vuelve a `pendiente` y libera al repartidor.
+- `POST /pedidos/:id/cancelar` — body `{ motivo }` (400 si falta). Valido
+  desde cualquier estado menos `entregado` (409 si ya esta entregado).
 - `GET /repartidores`
 - `POST /repartidores` — body `{ nombre, telefono, vehiculo }`
 - `PUT /repartidores/:id` — body `{ nombre, telefono, vehiculo }`

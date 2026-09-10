@@ -45,6 +45,13 @@ function liberarRepartidorDe(pedido) {
   if (rep) rep.libre = true;
 }
 
+function horaActual() {
+  const ahora = new Date();
+  const hh = String(ahora.getHours()).padStart(2, '0');
+  const mm = String(ahora.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const partes = url.pathname.split('/').filter(Boolean);
@@ -98,38 +105,61 @@ const server = createServer(async (req, res) => {
       if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
 
       if (accion === 'asignar') {
+        if (pedido.estado !== 'pendiente') {
+          return enviarError(res, 409, 'El pedido no esta pendiente');
+        }
         const body = await leerCuerpo(req);
+        if (!body.repartidorId) return enviarError(res, 400, 'Falta el repartidorId');
         const rep = repartidores.find((r) => String(r.id) === String(body.repartidorId));
         if (!rep) return enviarError(res, 404, 'Repartidor no encontrado');
+        if (!rep.libre) return enviarError(res, 409, 'El repartidor ya no esta libre');
         pedido.estado = 'asignado';
         pedido.repartidor = rep.nombre;
+        pedido.horaAsignacion = horaActual();
         rep.libre = false;
         return enviarJson(res, 200, pedido);
       }
 
       if (accion === 'en-camino') {
+        if (pedido.estado !== 'asignado') {
+          return enviarError(res, 409, 'El pedido no esta asignado');
+        }
         pedido.estado = 'en_camino';
         return enviarJson(res, 200, pedido);
       }
 
       if (accion === 'entregar') {
+        if (pedido.estado !== 'en_camino') {
+          return enviarError(res, 409, 'El pedido no esta en camino');
+        }
         pedido.estado = 'entregado';
+        pedido.horaEntrega = horaActual();
         liberarRepartidorDe(pedido);
         return enviarJson(res, 200, pedido);
       }
 
       if (accion === 'liberar') {
+        if (pedido.estado !== 'asignado') {
+          return enviarError(res, 409, 'El pedido no esta asignado');
+        }
         liberarRepartidorDe(pedido);
         pedido.estado = 'pendiente';
         pedido.repartidor = null;
+        pedido.horaAsignacion = null;
         return enviarJson(res, 200, pedido);
       }
 
       if (accion === 'cancelar') {
+        if (pedido.estado === 'entregado') {
+          return enviarError(res, 409, 'No se puede cancelar un pedido entregado');
+        }
         const body = await leerCuerpo(req);
+        if (!body.motivo) {
+          return enviarError(res, 400, 'Falta el motivo de cancelacion');
+        }
         liberarRepartidorDe(pedido);
         pedido.estado = 'cancelado';
-        pedido.motivoCancelacion = body.motivo ?? '';
+        pedido.motivoCancelacion = body.motivo;
         return enviarJson(res, 200, pedido);
       }
 
