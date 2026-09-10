@@ -32,7 +32,11 @@ proxy.
 ## Endpoints
 
 - `GET /pedidos?estado=pendiente|asignado|en_camino|entregado`
-- `POST /pedidos` — body `{ cliente, telefono, direccion, zona, importe, items }`
+- `POST /pedidos` — body `{ cliente, telefono, direccion, zona, importe, items }`.
+  El `importe` recibido se toma como base y se le suma el recargo de la zona
+  (`src/data/zonas.js`); el pedido creado guarda `importeBase` (lo que mando
+  el cliente) e `importe` (con el recargo ya aplicado, es el que se muestra
+  y se factura).
 - `POST /pedidos/:id/asignar` — body `{ repartidorId }`. Requiere pedido
   `pendiente` y repartidor `libre` (409 si no); pasa el pedido a `asignado`,
   guarda `horaAsignacion` y pone al repartidor no libre.

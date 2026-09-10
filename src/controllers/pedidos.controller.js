@@ -4,6 +4,7 @@
 // nativos, igual que ../server.js.
 
 import { pedidos, siguienteIdPedidoNuevo } from '../data/pedidos.js';
+import { aplicarRecargoZona } from '../data/zonas.js';
 import { repartidores } from '../db.js';
 
 function leerCuerpo(req) {
@@ -69,13 +70,15 @@ export async function crearPedido(req, res) {
   if (!body.cliente || !body.direccion || !body.zona) {
     return enviarError(res, 400, 'Faltan datos del pedido');
   }
+  const importeBase = Number(body.importe) || 0;
   const nuevo = {
     id: siguienteIdPedidoNuevo(),
     cliente: body.cliente,
     telefono: body.telefono ?? '',
     direccion: body.direccion,
     zona: body.zona,
-    importe: Number(body.importe) || 0,
+    importeBase,
+    importe: aplicarRecargoZona(importeBase, body.zona),
     items: body.items ?? '',
     estado: 'pendiente',
     repartidorId: null,

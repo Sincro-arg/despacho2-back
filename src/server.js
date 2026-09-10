@@ -2,6 +2,7 @@
 // para no depender de `npm install` a la hora de levantar el back.
 import { createServer } from 'node:http';
 import { pedidos, repartidores, siguienteId, calcularMetricas } from './db.js';
+import { aplicarRecargoZona } from './data/zonas.js';
 
 const PUERTO = Number(process.env.PORT) || 3001;
 
@@ -82,13 +83,15 @@ const server = createServer(async (req, res) => {
       if (!body.cliente || !body.direccion || !body.zona) {
         return enviarError(res, 400, 'Faltan datos del pedido');
       }
+      const importeBase = Number(body.importe) || 0;
       const nuevo = {
         id: siguienteId('pedido'),
         cliente: body.cliente,
         telefono: body.telefono ?? '',
         direccion: body.direccion,
         zona: body.zona,
-        importe: Number(body.importe) || 0,
+        importeBase,
+        importe: aplicarRecargoZona(importeBase, body.zona),
         items: body.items ?? '',
         estado: 'pendiente',
         repartidor: null,
