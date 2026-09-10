@@ -195,6 +195,7 @@ export const pedidos = [
     repartidorId: '1',
     repartidor: 'Ana Gomez',
     horaAsignacion: '08:30',
+    horaEntrega: '09:05',
     demorado: false,
   },
   {
@@ -209,6 +210,7 @@ export const pedidos = [
     repartidorId: '2',
     repartidor: 'Carlos Ruiz',
     horaAsignacion: '09:10',
+    horaEntrega: '09:52',
     demorado: false,
   },
   {
@@ -223,6 +225,7 @@ export const pedidos = [
     repartidorId: '1',
     repartidor: 'Ana Gomez',
     horaAsignacion: '10:05',
+    horaEntrega: '10:30',
     demorado: false,
   },
 ];

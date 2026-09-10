@@ -58,7 +58,7 @@ proxy.
 CORS habilitado para cualquier origen, para simplificar el uso sin proxy
 (por ejemplo con `npm run preview` del front).
 
-## Modulo /api/pedidos y /api/zonas (nuevo, en migracion)
+## Modulo /api/pedidos, /api/metricas y /api/zonas (nuevo, en migracion)
 
 `src/app.js` es un segundo punto de entrada (`npm run start:api`) organizado
 por recurso: `src/data/pedidos.js` (semilla), `src/controllers/pedidos.controller.js`
@@ -71,8 +71,19 @@ en los 4 estados, con `horaAsignacion` y uno demorado).
 `GET /api/zonas` expone lo mismo que `GET /zonas`, reutilizando
 `src/data/zonas.js`.
 
+`GET /api/metricas` (`src/controllers/metricas.controller.js`, sobre la
+semilla de `/api/pedidos`) devuelve:
+- `porEstado`: cantidad de pedidos por cada estado.
+- `entregados` y `facturado`: cantidad y suma de `importe` de los entregados.
+- `tiempoPromedioEntregaMinutos`: promedio de `horaEntrega - horaAsignacion`
+  (en minutos) de los pedidos entregados que tienen ambas horas cargadas.
+- `porRepartidor`: entregas por repartidor, ordenadas de mayor a menor.
+- `pedidosDemorados`: pedidos `asignado`/`en_camino` con mas de 45 minutos
+  desde `horaAsignacion` hasta ahora (se recalcula en cada request, no es
+  un flag fijo).
+
 Hoy convive con `server.js` sin reemplazarlo: `despacho2-front` sigue
-apuntando a `/pedidos` (sin prefijo) via el proxy de Vite, asi que
-`start`/`dev` siguen levantando `server.js`. Falta decidir si esto reemplaza
-a `server.js` (y entonces migrar tambien repartidores/metricas a `/api` y
+apuntando a `/pedidos` y `/metricas` (sin prefijo) via el proxy de Vite, asi
+que `start`/`dev` siguen levantando `server.js`. Falta decidir si esto
+reemplaza a `server.js` (y entonces migrar tambien repartidores a `/api` y
 actualizar el proxy del front) o si se mantienen los dos.
