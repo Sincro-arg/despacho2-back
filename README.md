@@ -7,7 +7,9 @@ persistencia: al reiniciar el proceso, los datos vuelven al seed inicial.
 
 ## Requisitos
 
-Node 18 o superior. No hace falta `npm install` (no tiene dependencias).
+Node 18 o superior. No hace falta `npm install` para levantar el server (no
+tiene dependencias de runtime); solo hace falta para correr los tests, que
+usan `supertest` como devDependency.
 
 ## Uso
 
@@ -87,3 +89,21 @@ apuntando a `/pedidos` y `/metricas` (sin prefijo) via el proxy de Vite, asi
 que `start`/`dev` siguen levantando `server.js`. Falta decidir si esto
 reemplaza a `server.js` (y entonces migrar tambien repartidores a `/api` y
 actualizar el proxy del front) o si se mantienen los dos.
+
+## Tests
+
+```
+npm test
+```
+
+Corre `test/pedidos.test.mjs` con el runner nativo de Node (`node --test`) y
+`supertest` contra `src/app.js` (el modulo `/api/pedidos`): alta, cada
+transicion de estado en su camino feliz y sus errores (repartidor ocupado,
+pedido en estado incorrecto, entregar sin pasar por en-camino, cancelar un
+entregado, liberar, id inexistente e id mal formado). `pretest` corre
+`npm install` para traer `supertest` como devDependency; no afecta al
+servidor en produccion, que sigue sin dependencias de runtime.
+
+`src/app.js` exporta el `http.Server` y solo llama a `.listen()` cuando se
+ejecuta directo (`npm run start:api`); al importarlo desde el test no ocupa
+ningun puerto real, `supertest` lo levanta el mismo en uno efimero.

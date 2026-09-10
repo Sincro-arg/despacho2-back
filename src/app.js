@@ -62,6 +62,13 @@ const app = createServer(async (req, res) => {
   }
 });
 
-app.listen(PUERTO, () => {
-  console.log(`despacho2-back (api) escuchando en http://localhost:${PUERTO}`);
-});
+// Solo escucha si este archivo se ejecuta directo (`npm run start:api`).
+// Al importarlo desde un test con supertest, `app` viaja sin bindear ningun
+// puerto: supertest lo levanta el mismo en un puerto efimero por request.
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  app.listen(PUERTO, () => {
+    console.log(`despacho2-back (api) escuchando en http://localhost:${PUERTO}`);
+  });
+}
+
+export default app;
