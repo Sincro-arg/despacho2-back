@@ -26,3 +26,8 @@ export function aplicarRecargoZona(importeBase, zona) {
   const recargo = recargoDeZona(zona);
   return Math.round(importeBase * (1 + recargo) * 100) / 100;
 }
+
+/** Lista las zonas fijas con su recargo, para exponer via API. */
+export function listarZonas() {
+  return Object.entries(RECARGOS_ZONA).map(([zona, recargo]) => ({ zona, recargo }));
+}

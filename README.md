@@ -52,11 +52,13 @@ proxy.
 - `PUT /repartidores/:id` — body `{ nombre, telefono, vehiculo }`
 - `DELETE /repartidores/:id` — baja logica (marca `estado: "inactivo"`)
 - `GET /metricas`
+- `GET /zonas` — las 4 zonas fijas con su recargo (`src/data/zonas.js`),
+  por ejemplo `[{ "zona": "Centro", "recargo": 0 }, ...]`.
 
 CORS habilitado para cualquier origen, para simplificar el uso sin proxy
 (por ejemplo con `npm run preview` del front).
 
-## Modulo /api/pedidos (nuevo, en migracion)
+## Modulo /api/pedidos y /api/zonas (nuevo, en migracion)
 
 `src/app.js` es un segundo punto de entrada (`npm run start:api`) organizado
 por recurso: `src/data/pedidos.js` (semilla), `src/controllers/pedidos.controller.js`
@@ -65,6 +67,9 @@ verbos que `/pedidos` (alta, `asignar`, `en-camino`, `entregar`, `liberar`,
 `cancelar` con `motivo`). Reutiliza los repartidores de `src/db.js` para
 `asignar`/`liberar`, pero tiene su propia semilla de pedidos (15, repartidos
 en los 4 estados, con `horaAsignacion` y uno demorado).
+
+`GET /api/zonas` expone lo mismo que `GET /zonas`, reutilizando
+`src/data/zonas.js`.
 
 Hoy convive con `server.js` sin reemplazarlo: `despacho2-front` sigue
 apuntando a `/pedidos` (sin prefijo) via el proxy de Vite, asi que

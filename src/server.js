@@ -2,7 +2,7 @@
 // para no depender de `npm install` a la hora de levantar el back.
 import { createServer } from 'node:http';
 import { pedidos, repartidores, siguienteId, calcularMetricas } from './db.js';
-import { aplicarRecargoZona } from './data/zonas.js';
+import { aplicarRecargoZona, listarZonas } from './data/zonas.js';
 
 const PUERTO = Number(process.env.PORT) || 3001;
 
@@ -214,6 +214,11 @@ const server = createServer(async (req, res) => {
     // GET /metricas
     if (req.method === 'GET' && partes[0] === 'metricas' && partes.length === 1) {
       return enviarJson(res, 200, calcularMetricas());
+    }
+
+    // GET /zonas
+    if (req.method === 'GET' && partes[0] === 'zonas' && partes.length === 1) {
+      return enviarJson(res, 200, listarZonas());
     }
 
     return enviarError(res, 404, 'Ruta no encontrada');

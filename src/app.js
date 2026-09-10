@@ -5,10 +5,11 @@
 // Convive con ./server.js (que sigue sirviendo /pedidos, /repartidores y
 // /metricas sin prefijo, y es lo que usa hoy despacho2-front). Este archivo
 // es el punto de entrada de la migracion a modulos por recurso bajo /api;
-// por ahora solo trae pedidos.
+// por ahora trae pedidos y zonas.
 
 import { createServer } from 'node:http';
 import { rutaPedidos } from './routes/pedidos.routes.js';
+import { listarZonas } from './data/zonas.js';
 
 const PUERTO = Number(process.env.PORT) || 3001;
 
@@ -43,6 +44,10 @@ const app = createServer(async (req, res) => {
     if (partes[0] === 'api' && partes[1] === 'pedidos') {
       const manejado = await rutaPedidos(req, res, partes.slice(2), url);
       if (manejado) return;
+    }
+
+    if (req.method === 'GET' && partes[0] === 'api' && partes[1] === 'zonas' && partes.length === 2) {
+      return enviarJson(res, 200, listarZonas());
     }
 
     return enviarJson(res, 404, { mensaje: 'Ruta no encontrada' });
