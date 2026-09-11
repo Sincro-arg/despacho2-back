@@ -1,34 +1,74 @@
-const express = require('express');
-const repartidoresRoutes = require('./routes/repartidores.routes');
-const pedidosRoutes = require('./routes/pedidos.routes');
-const metricasRoutes = require('./routes/metricas.routes');
-const errorHandler = require('./middleware/errorHandler');
-const AppError = require('./errors/AppError');
+// App HTTP para los modulos nuevos organizados como data/controllers/routes,
+// montados bajo /api. Sin Express ni otras dependencias externas: el back
+// las evita a proposito (ver README) para no depender de `npm install`.
+//
+// Convive con ./server.js (que sigue sirviendo /pedidos, /repartidores y
+// /metricas sin prefijo, y es lo que usa hoy despacho2-front). Este archivo
+// es el punto de entrada de la migracion a modulos por recurso bajo /api;
+// por ahora trae pedidos, metricas y zonas.
 
-const app = express();
+import { createServer } from 'node:http';
+import { rutaPedidos } from './routes/pedidos.routes.js';
+import { rutaMetricas } from './routes/metricas.routes.js';
+import { listarZonas } from './data/zonas.js';
 
-app.use(express.json());
+const PUERTO = Number(process.env.PORT) || 3001;
 
-// CORS minimo: el front corre en otro origen (puerto de Vite) y necesita
-// poder pegarle a esta API desde el navegador.
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+function conCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+function enviarJson(res, status, cuerpo) {
+  conCors(res);
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(cuerpo === undefined ? '' : JSON.stringify(cuerpo));
+}
+
+const app = createServer(async (req, res) => {
+  conCors(res);
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const partes = url.pathname.split('/').filter(Boolean);
+
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
+    res.writeHead(204);
+    res.end();
+    return;
   }
-  next();
+
+  try {
+    if (req.method === 'GET' && partes.length === 0) {
+      return enviarJson(res, 200, { status: 'ok', servicio: 'despacho2-back (api)' });
+    }
+
+    if (partes[0] === 'api' && partes[1] === 'pedidos') {
+      const manejado = await rutaPedidos(req, res, partes.slice(2), url);
+      if (manejado) return;
+    }
+
+    if (partes[0] === 'api' && partes[1] === 'metricas') {
+      const manejado = await rutaMetricas(req, res, partes.slice(2));
+      if (manejado) return;
+    }
+
+    if (req.method === 'GET' && partes[0] === 'api' && partes[1] === 'zonas' && partes.length === 2) {
+      return enviarJson(res, 200, listarZonas());
+    }
+
+    return enviarJson(res, 404, { mensaje: 'Ruta no encontrada' });
+  } catch (err) {
+    return enviarJson(res, 500, { mensaje: err instanceof Error ? err.message : 'Error interno' });
+  }
 });
 
-app.use('/api/repartidores', repartidoresRoutes);
-app.use('/api/pedidos', pedidosRoutes);
-app.use('/api/metricas', metricasRoutes);
+// Solo escucha si este archivo se ejecuta directo (`npm run start:api`).
+// Al importarlo desde un test con supertest, `app` viaja sin bindear ningun
+// puerto: supertest lo levanta el mismo en un puerto efimero por request.
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  app.listen(PUERTO, () => {
+    console.log(`despacho2-back (api) escuchando en http://localhost:${PUERTO}`);
+  });
+}
 
-app.use((req, res, next) => {
-  next(new AppError(404, `Ruta no encontrada: ${req.method} ${req.originalUrl}`));
-});
-
-app.use(errorHandler);
-
-module.exports = app;
+export default app;

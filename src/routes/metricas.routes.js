@@ -1,8 +1,17 @@
-const express = require('express');
-const controller = require('../controllers/metricas.controller');
+// Ruteo del modulo /api/metricas. `app.js` ya saco el prefijo '/api/metricas'
+// de `partes` antes de llamar a esta funcion.
 
-const router = express.Router();
+import { obtenerMetricas } from '../controllers/metricas.controller.js';
 
-router.get('/turno', controller.turno);
+/**
+ * @returns {Promise<boolean>} true si la ruta matcheo y ya respondio, false si no es de este modulo.
+ */
+export async function rutaMetricas(req, res, partes) {
+  // GET /api/metricas
+  if (req.method === 'GET' && partes.length === 0) {
+    await obtenerMetricas(req, res);
+    return true;
+  }
 
-module.exports = router;
+  return false;
+}

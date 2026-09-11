@@ -1,17 +1,33 @@
-// Las 4 zonas de envio son fijas: no se crean ni se borran en runtime.
-const zonas = [
-  { nombre: 'centro', recargoEnvio: 100 },
-  { nombre: 'norte', recargoEnvio: 150 },
-  { nombre: 'sur', recargoEnvio: 150 },
-  { nombre: 'costa', recargoEnvio: 250 },
-];
+// Recargos de envio por zona, como porcentaje sobre el importe del pedido.
+// Valores de referencia para desarrollo: no vienen de ningun pliego ni lista
+// de precios del negocio (no hay ninguno en el proyecto). Confirmar los
+// porcentajes reales con el area comercial antes de llevar esto a produccion.
 
-function getAll() {
-  return zonas;
+export const RECARGOS_ZONA = {
+  Centro: 0,
+  Norte: 0.1,
+  Sur: 0.1,
+  Oeste: 0.15,
+};
+
+/** Recargo (0 a 1) para una zona. Comparacion sin mayusculas/minusculas ni
+ * espacios; si la zona no esta en la tabla, no se aplica recargo. */
+export function recargoDeZona(zona) {
+  if (!zona) return 0;
+  const clave = Object.keys(RECARGOS_ZONA).find(
+    (z) => z.toLowerCase() === String(zona).trim().toLowerCase(),
+  );
+  return clave ? RECARGOS_ZONA[clave] : 0;
 }
 
-function getByNombre(nombre) {
-  return zonas.find((z) => z.nombre === nombre);
+/** Aplica el recargo de la zona sobre un importe base, redondeando a
+ * centavos para evitar errores de coma flotante. */
+export function aplicarRecargoZona(importeBase, zona) {
+  const recargo = recargoDeZona(zona);
+  return Math.round(importeBase * (1 + recargo) * 100) / 100;
 }
 
-module.exports = { getAll, getByNombre };
+/** Lista las zonas fijas con su recargo, para exponer via API. */
+export function listarZonas() {
+  return Object.entries(RECARGOS_ZONA).map(([zona, recargo]) => ({ zona, recargo }));
+}

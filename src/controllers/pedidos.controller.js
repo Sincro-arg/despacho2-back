@@ -1,234 +1,161 @@
-const pedidosData = require('../data/pedidos');
-const repartidoresData = require('../data/repartidores');
-const zonasData = require('../data/zonas');
-const AppError = require('../errors/AppError');
+// Controladores del modulo /api/pedidos.
+// Sin Express: el back no tiene dependencias externas (ver package.json), asi
+// que esto trabaja directo con los objetos http.IncomingMessage/ServerResponse
+// nativos, igual que ../server.js.
 
-function parseId(valor, etiqueta = 'id') {
-  if (!/^\d+$/.test(String(valor))) {
-    throw new AppError(400, `El ${etiqueta} '${valor}' no es valido: debe ser un numero entero positivo.`);
-  }
-  return Number(valor);
-}
+import { pedidos, siguienteIdPedidoNuevo } from '../data/pedidos.js';
+import { aplicarRecargoZona } from '../data/zonas.js';
+import { repartidores } from '../db.js';
 
-function buscarPedidoOFallar(id) {
-  const pedido = pedidosData.getById(id);
-  if (!pedido) {
-    throw new AppError(404, `No existe un pedido con id ${id}.`);
-  }
-  return pedido;
-}
-
-function buscarRepartidorOFallar(id) {
-  const repartidor = repartidoresData.getById(id);
-  if (!repartidor) {
-    throw new AppError(404, `No existe un repartidor con id ${id}.`);
-  }
-  return repartidor;
-}
-
-function validarItems(items) {
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new AppError(400, 'El pedido debe tener al menos un item.');
-  }
-  items.forEach((item, index) => {
-    if (!item || typeof item.nombre !== 'string' || !item.nombre.trim()) {
-      throw new AppError(400, `El item en la posicion ${index} debe tener un nombre.`);
-    }
-    if (typeof item.cantidad !== 'number' || item.cantidad <= 0) {
-      throw new AppError(400, `El item '${item.nombre}' debe tener una cantidad mayor a 0.`);
-    }
-    if (typeof item.precioUnitario !== 'number' || item.precioUnitario < 0) {
-      throw new AppError(400, `El item '${item.nombre}' debe tener un precioUnitario valido.`);
-    }
+function leerCuerpo(req) {
+  return new Promise((resolve, reject) => {
+    let datos = '';
+    req.on('data', (chunk) => {
+      datos += chunk;
+    });
+    req.on('end', () => {
+      if (!datos) return resolve({});
+      try {
+        resolve(JSON.parse(datos));
+      } catch {
+        reject(new Error('JSON invalido'));
+      }
+    });
+    req.on('error', reject);
   });
 }
 
-function validarDatosCreacion(body) {
-  const { direccion, zona, cliente, telefono, items } = body;
-  if (!direccion || typeof direccion !== 'string') {
-    throw new AppError(400, 'El campo direccion es obligatorio.');
-  }
-  if (!cliente || typeof cliente !== 'string') {
-    throw new AppError(400, 'El campo cliente es obligatorio.');
-  }
-  if (!telefono || typeof telefono !== 'string') {
-    throw new AppError(400, 'El campo telefono es obligatorio.');
-  }
-  if (!zonasData.getByNombre(zona)) {
-    const nombres = zonasData.getAll().map((z) => z.nombre).join(', ');
-    throw new AppError(400, `La zona debe ser una de: ${nombres}.`);
-  }
-  validarItems(items);
+function enviarJson(res, status, cuerpo) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(cuerpo === undefined ? '' : JSON.stringify(cuerpo));
 }
 
-function listar(req, res) {
-  const { estado } = req.query;
-  const todos = pedidosData.getAll();
-  if (estado) {
-    return res.json(todos.filter((p) => p.estado === estado));
-  }
-  res.json(todos);
+function enviarError(res, status, mensaje) {
+  enviarJson(res, status, { mensaje });
 }
 
-function obtener(req, res, next) {
-  try {
-    const id = parseId(req.params.id);
-    res.json(buscarPedidoOFallar(id));
-  } catch (err) {
-    next(err);
-  }
+function horaActual() {
+  const ahora = new Date();
+  const hh = String(ahora.getHours()).padStart(2, '0');
+  const mm = String(ahora.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
 }
 
-function crear(req, res, next) {
-  try {
-    validarDatosCreacion(req.body);
-    const nuevo = pedidosData.create(req.body);
-    res.status(201).json(nuevo);
-  } catch (err) {
-    next(err);
-  }
+function buscarPedido(id) {
+  return pedidos.find((p) => p.id === id);
 }
 
-// Solo si el pedido esta pendiente y el repartidor libre. El repartidor
-// pasa a en_ruta.
-function asignar(req, res, next) {
-  try {
-    const id = parseId(req.params.id, 'id de pedido');
-    const pedido = buscarPedidoOFallar(id);
-    const repartidorId = parseId(req.body.repartidorId, 'repartidorId');
-    const repartidor = buscarRepartidorOFallar(repartidorId);
-
-    if (pedido.estado !== 'pendiente') {
-      throw new AppError(409, `El pedido esta '${pedido.estado}' y solo se puede asignar si esta pendiente.`);
-    }
-    if (!repartidor.activo) {
-      throw new AppError(409, 'El repartidor esta dado de baja y no puede tomar pedidos.');
-    }
-    if (repartidor.estado !== 'libre') {
-      throw new AppError(409, `El repartidor esta '${repartidor.estado}' y no puede tomar un pedido nuevo.`);
-    }
-
-    pedidosData.update(id, {
-      estado: 'asignado',
-      repartidorId,
-      asignadoEn: new Date().toISOString(),
-    });
-    repartidoresData.update(repartidorId, { estado: 'en_ruta' });
-
-    res.json(pedidosData.getById(id));
-  } catch (err) {
-    next(err);
-  }
+function liberarRepartidorDe(pedido) {
+  if (!pedido.repartidorId) return;
+  const rep = repartidores.find((r) => String(r.id) === String(pedido.repartidorId));
+  if (rep) rep.libre = true;
 }
 
-function marcarEnCamino(req, res, next) {
-  try {
-    const id = parseId(req.params.id);
-    const pedido = buscarPedidoOFallar(id);
-    if (pedido.estado !== 'asignado') {
-      throw new AppError(409, `El pedido esta '${pedido.estado}' y solo puede pasar a en_camino si esta asignado.`);
-    }
-    pedidosData.update(id, { estado: 'en_camino' });
-    res.json(pedidosData.getById(id));
-  } catch (err) {
-    next(err);
+function exigirEstado(res, pedido, estadoEsperado, mensaje) {
+  if (pedido.estado !== estadoEsperado) {
+    enviarError(res, 409, mensaje ?? `El pedido esta en estado '${pedido.estado}', se esperaba '${estadoEsperado}'`);
+    return false;
   }
+  return true;
 }
 
-// Guarda la hora de entrega y devuelve al repartidor a libre.
-function marcarEntregado(req, res, next) {
-  try {
-    const id = parseId(req.params.id);
-    const pedido = buscarPedidoOFallar(id);
-    if (pedido.estado !== 'en_camino') {
-      throw new AppError(409, `El pedido esta '${pedido.estado}' y solo se puede entregar si esta en_camino.`);
-    }
-
-    pedidosData.update(id, { estado: 'entregado', entregadoEn: new Date().toISOString() });
-
-    if (pedido.repartidorId) {
-      const repartidor = repartidoresData.getById(pedido.repartidorId);
-      if (repartidor) {
-        repartidoresData.update(repartidor.id, {
-          estado: 'libre',
-          entregasHechas: repartidor.entregasHechas + 1,
-        });
-      }
-    }
-
-    res.json(pedidosData.getById(id));
-  } catch (err) {
-    next(err);
-  }
+export async function listarPedidos(req, res, url) {
+  const estado = url.searchParams.get('estado');
+  const resultado = estado ? pedidos.filter((p) => p.estado === estado) : pedidos;
+  return enviarJson(res, 200, resultado);
 }
 
-// El pedido vuelve a pendiente y el repartidor a libre.
-function liberar(req, res, next) {
-  try {
-    const id = parseId(req.params.id);
-    const pedido = buscarPedidoOFallar(id);
-    if (pedido.estado !== 'asignado' && pedido.estado !== 'en_camino') {
-      throw new AppError(409, `El pedido esta '${pedido.estado}' y no tiene un repartidor asignado para liberar.`);
-    }
-
-    const repartidorId = pedido.repartidorId;
-    pedidosData.update(id, { estado: 'pendiente', repartidorId: null, asignadoEn: null });
-    if (repartidorId) {
-      const repartidor = repartidoresData.getById(repartidorId);
-      if (repartidor) {
-        repartidoresData.update(repartidorId, { estado: 'libre' });
-      }
-    }
-
-    res.json(pedidosData.getById(id));
-  } catch (err) {
-    next(err);
+export async function crearPedido(req, res) {
+  const body = await leerCuerpo(req);
+  if (!body.cliente || !body.direccion || !body.zona) {
+    return enviarError(res, 400, 'Faltan datos del pedido');
   }
+  const importeBase = Number(body.importe) || 0;
+  const nuevo = {
+    id: siguienteIdPedidoNuevo(),
+    cliente: body.cliente,
+    telefono: body.telefono ?? '',
+    direccion: body.direccion,
+    zona: body.zona,
+    importeBase,
+    importe: aplicarRecargoZona(importeBase, body.zona),
+    items: body.items ?? '',
+    estado: 'pendiente',
+    repartidorId: null,
+    repartidor: null,
+    horaAsignacion: null,
+    horaEntrega: null,
+    demorado: false,
+  };
+  pedidos.push(nuevo);
+  return enviarJson(res, 201, nuevo);
 }
 
-// Alcanzable desde cualquier estado excepto entregado. Requiere motivo.
-function cancelar(req, res, next) {
-  try {
-    const id = parseId(req.params.id);
-    const pedido = buscarPedidoOFallar(id);
-    const { motivo } = req.body;
+export async function asignarPedido(req, res, id) {
+  const pedido = buscarPedido(id);
+  if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (!exigirEstado(res, pedido, 'pendiente', 'El pedido no esta pendiente')) return;
 
-    if (pedido.estado === 'entregado') {
-      throw new AppError(409, 'No se puede cancelar un pedido que ya fue entregado.');
-    }
-    if (pedido.estado === 'cancelado') {
-      throw new AppError(409, 'El pedido ya esta cancelado.');
-    }
-    if (!motivo || typeof motivo !== 'string' || !motivo.trim()) {
-      throw new AppError(400, 'El motivo de cancelacion es obligatorio.');
-    }
+  const body = await leerCuerpo(req);
+  if (!body.repartidorId) return enviarError(res, 400, 'Falta el repartidorId');
 
-    if (pedido.repartidorId) {
-      const repartidor = repartidoresData.getById(pedido.repartidorId);
-      if (repartidor) {
-        repartidoresData.update(pedido.repartidorId, { estado: 'libre' });
-      }
-    }
+  const rep = repartidores.find((r) => String(r.id) === String(body.repartidorId));
+  if (!rep) return enviarError(res, 404, 'Repartidor no encontrado');
+  if (rep.estado !== 'activo') return enviarError(res, 409, 'El repartidor esta inactivo');
+  if (!rep.libre) return enviarError(res, 409, 'El repartidor ya no esta libre');
 
-    pedidosData.update(id, {
-      estado: 'cancelado',
-      motivoCancelacion: motivo,
-      canceladoEn: new Date().toISOString(),
-    });
-
-    res.json(pedidosData.getById(id));
-  } catch (err) {
-    next(err);
-  }
+  pedido.estado = 'asignado';
+  pedido.repartidorId = rep.id;
+  pedido.repartidor = rep.nombre;
+  pedido.horaAsignacion = horaActual();
+  rep.libre = false;
+  return enviarJson(res, 200, pedido);
 }
 
-module.exports = {
-  listar,
-  obtener,
-  crear,
-  asignar,
-  marcarEnCamino,
-  marcarEntregado,
-  liberar,
-  cancelar,
-};
+export async function marcarEnCamino(req, res, id) {
+  const pedido = buscarPedido(id);
+  if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (!exigirEstado(res, pedido, 'asignado', 'El pedido no esta asignado')) return;
+  pedido.estado = 'en_camino';
+  return enviarJson(res, 200, pedido);
+}
+
+export async function marcarEntregado(req, res, id) {
+  const pedido = buscarPedido(id);
+  if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (!exigirEstado(res, pedido, 'en_camino', 'El pedido no esta en camino')) return;
+  pedido.estado = 'entregado';
+  pedido.horaEntrega = horaActual();
+  liberarRepartidorDe(pedido);
+  return enviarJson(res, 200, pedido);
+}
+
+export async function liberarPedido(req, res, id) {
+  const pedido = buscarPedido(id);
+  if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (!exigirEstado(res, pedido, 'asignado', 'El pedido no esta asignado')) return;
+  liberarRepartidorDe(pedido);
+  pedido.estado = 'pendiente';
+  pedido.repartidorId = null;
+  pedido.repartidor = null;
+  pedido.horaAsignacion = null;
+  return enviarJson(res, 200, pedido);
+}
+
+export async function cancelarPedido(req, res, id) {
+  const pedido = buscarPedido(id);
+  if (!pedido) return enviarError(res, 404, 'Pedido no encontrado');
+  if (pedido.estado === 'entregado') {
+    return enviarError(res, 409, 'No se puede cancelar un pedido entregado');
+  }
+  const body = await leerCuerpo(req);
+  if (!body.motivo) {
+    return enviarError(res, 400, 'Falta el motivo de cancelacion');
+  }
+  liberarRepartidorDe(pedido);
+  pedido.estado = 'cancelado';
+  pedido.motivoCancelacion = body.motivo;
+  return enviarJson(res, 200, pedido);
+}
+
+export { enviarError };

@@ -1,15 +1,52 @@
-const express = require('express');
-const controller = require('../controllers/pedidos.controller');
+// Ruteo del modulo /api/pedidos. `app.js` ya saco el prefijo '/api/pedidos'
+// de `partes` antes de llamar a esta funcion.
 
-const router = express.Router();
+import {
+  listarPedidos,
+  crearPedido,
+  asignarPedido,
+  marcarEnCamino,
+  marcarEntregado,
+  liberarPedido,
+  cancelarPedido,
+  enviarError,
+} from '../controllers/pedidos.controller.js';
 
-router.get('/', controller.listar);
-router.get('/:id', controller.obtener);
-router.post('/', controller.crear);
-router.post('/:id/asignar', controller.asignar);
-router.post('/:id/en-camino', controller.marcarEnCamino);
-router.post('/:id/entregar', controller.marcarEntregado);
-router.post('/:id/liberar', controller.liberar);
-router.post('/:id/cancelar', controller.cancelar);
+const ACCIONES = {
+  asignar: asignarPedido,
+  'en-camino': marcarEnCamino,
+  entregar: marcarEntregado,
+  liberar: liberarPedido,
+  cancelar: cancelarPedido,
+};
 
-module.exports = router;
+/**
+ * @returns {Promise<boolean>} true si la ruta matcheo y ya respondio, false si no es de este modulo.
+ */
+export async function rutaPedidos(req, res, partes, url) {
+  // GET /api/pedidos?estado=...
+  if (req.method === 'GET' && partes.length === 0) {
+    await listarPedidos(req, res, url);
+    return true;
+  }
+
+  // POST /api/pedidos
+  if (req.method === 'POST' && partes.length === 0) {
+    await crearPedido(req, res);
+    return true;
+  }
+
+  // POST /api/pedidos/:id/:accion
+  if (req.method === 'POST' && partes.length === 2) {
+    const [id, accion] = partes;
+    const handler = ACCIONES[accion];
+    if (!handler) {
+      enviarError(res, 404, 'Accion no reconocida');
+      return true;
+    }
+    await handler(req, res, id);
+    return true;
+  }
+
+  return false;
+}

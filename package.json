@@ -1,17 +1,19 @@
 {
   "name": "despacho2-back",
-  "version": "1.0.0",
-  "description": "Backend de despacho2: gestion de repartidores y zonas de envio",
-  "main": "src/server.js",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
   "scripts": {
     "start": "node src/server.js",
-    "test": "jest"
+    "dev": "node src/server.js",
+    "start:api": "node src/app.js",
+    "pretest": "npm install",
+    "test": "node --test ./test/*.test.mjs"
   },
-  "dependencies": {
-    "express": "^4.19.2"
+  "engines": {
+    "node": ">=18"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
     "supertest": "^7.0.0"
   }
 }

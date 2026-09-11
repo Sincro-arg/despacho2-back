@@ -1,75 +1,98 @@
-const pedidosData = require('../data/pedidos');
-const repartidoresData = require('../data/repartidores');
+// Controlador del modulo /api/metricas.
+// Sin Express: trabaja directo con los objetos http.IncomingMessage/
+// ServerResponse nativos, igual que el resto del modulo /api (ver
+// ../controllers/pedidos.controller.js).
 
-// Un pedido asignado hace mas de este umbral y que todavia no fue entregado
-// se considera demorado.
-const UMBRAL_DEMORA_MIN = 45;
+import { pedidos, ESTADOS_PEDIDO } from '../data/pedidos.js';
 
-function contarPorEstado(pedidos) {
-  return pedidosData.ESTADOS.reduce((acc, estado) => {
-    acc[estado] = pedidos.filter((p) => p.estado === estado).length;
-    return acc;
-  }, {});
+const MINUTOS_DEMORA = 45;
+
+function enviarJson(res, status, cuerpo) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(cuerpo === undefined ? '' : JSON.stringify(cuerpo));
 }
 
-function calcularTotales(pedidos) {
+function horaAMinutos(hora) {
+  const [hh, mm] = hora.split(':').map(Number);
+  return hh * 60 + mm;
+}
+
+function minutosAhora() {
+  const ahora = new Date();
+  return ahora.getHours() * 60 + ahora.getMinutes();
+}
+
+// Diferencia en minutos entre dos horas "HH:MM" del mismo turno, asumiendo
+// que `hasta` no cruza la medianoche respecto de `desde` mas de una vez.
+function diferenciaMinutos(desde, hasta) {
+  const diff = horaAMinutos(hasta) - horaAMinutos(desde);
+  return diff >= 0 ? diff : diff + 24 * 60;
+}
+
+// Igual que diferenciaMinutos, pero contra los minutos actuales ya
+// calculados (evita formatear la hora de "ahora" solo para reparsearla).
+function minutosTranscurridosDesde(horaInicio, ahoraMinutos) {
+  const diff = ahoraMinutos - horaAMinutos(horaInicio);
+  return diff >= 0 ? diff : diff + 24 * 60;
+}
+
+/**
+ * Calcula las metricas del turno a partir de `pedidos` (estado actual en
+ * memoria). Pura y sincronica: no toca req/res, para poder testearla aparte.
+ */
+export function calcularMetricas() {
+  const porEstado = Object.fromEntries(ESTADOS_PEDIDO.map((estado) => [estado, 0]));
+  for (const p of pedidos) {
+    porEstado[p.estado] = (porEstado[p.estado] ?? 0) + 1;
+  }
+
   const entregados = pedidos.filter((p) => p.estado === 'entregado');
-  const totalFacturado = entregados.reduce((acc, p) => acc + p.importe, 0);
-  return { cantidadEntregados: entregados.length, totalFacturado };
+  const facturado = entregados.reduce((acc, p) => acc + p.importe, 0);
+
+  const tiemposEntrega = entregados
+    .filter((p) => p.horaAsignacion && p.horaEntrega)
+    .map((p) => diferenciaMinutos(p.horaAsignacion, p.horaEntrega));
+  const tiempoPromedioEntregaMinutos = tiemposEntrega.length
+    ? Math.round(tiemposEntrega.reduce((a, b) => a + b, 0) / tiemposEntrega.length)
+    : 0;
+
+  const porRepartidorMap = new Map();
+  for (const p of entregados) {
+    if (!p.repartidorId) continue;
+    const actual = porRepartidorMap.get(p.repartidorId) ?? {
+      repartidorId: p.repartidorId,
+      repartidor: p.repartidor,
+      entregas: 0,
+    };
+    actual.entregas += 1;
+    porRepartidorMap.set(p.repartidorId, actual);
+  }
+  const porRepartidor = Array.from(porRepartidorMap.values()).sort((a, b) => b.entregas - a.entregas);
+
+  const ahoraMinutos = minutosAhora();
+  const pedidosDemorados = pedidos
+    .filter((p) => (p.estado === 'asignado' || p.estado === 'en_camino') && p.horaAsignacion)
+    .map((p) => ({
+      id: p.id,
+      cliente: p.cliente,
+      repartidorId: p.repartidorId,
+      repartidor: p.repartidor,
+      estado: p.estado,
+      horaAsignacion: p.horaAsignacion,
+      minutosDesdeAsignacion: minutosTranscurridosDesde(p.horaAsignacion, ahoraMinutos),
+    }))
+    .filter((p) => p.minutosDesdeAsignacion > MINUTOS_DEMORA);
+
+  return {
+    porEstado,
+    entregados: entregados.length,
+    facturado,
+    tiempoPromedioEntregaMinutos,
+    porRepartidor,
+    pedidosDemorados,
+  };
 }
 
-// Promedio en minutos desde que se asigna hasta que se entrega, tomando
-// solo los pedidos entregados que tienen ambas marcas de tiempo.
-function calcularTiempoPromedioEntrega(pedidos) {
-  const entregados = pedidos.filter((p) => p.estado === 'entregado' && p.asignadoEn && p.entregadoEn);
-  if (entregados.length === 0) return null;
-  const totalMinutos = entregados.reduce((acc, p) => {
-    const minutos = (new Date(p.entregadoEn).getTime() - new Date(p.asignadoEn).getTime()) / 60000;
-    return acc + minutos;
-  }, 0);
-  return totalMinutos / entregados.length;
+export async function obtenerMetricas(req, res) {
+  return enviarJson(res, 200, calcularMetricas());
 }
-
-// Cuenta entregas por pedidos reales (estado entregado), no por el contador
-// entregasHechas del repartidor, para que la metrica siempre refleje el
-// estado actual de los pedidos.
-function calcularEntregasPorRepartidor(pedidos, repartidores) {
-  const conteo = {};
-  pedidos.forEach((p) => {
-    if (p.estado === 'entregado' && p.repartidorId) {
-      conteo[p.repartidorId] = (conteo[p.repartidorId] || 0) + 1;
-    }
-  });
-  return repartidores
-    .map((r) => ({ repartidorId: r.id, nombre: r.nombre, entregas: conteo[r.id] || 0 }))
-    .sort((a, b) => b.entregas - a.entregas);
-}
-
-// Demorado: tiene asignadoEn, no esta entregado ni cancelado, y pasaron
-// mas de UMBRAL_DEMORA_MIN minutos desde que se asigno.
-function calcularDemorados(pedidos) {
-  const ahora = Date.now();
-  return pedidos.filter((p) => {
-    if (p.estado === 'entregado' || p.estado === 'cancelado') return false;
-    if (!p.asignadoEn) return false;
-    const minutos = (ahora - new Date(p.asignadoEn).getTime()) / 60000;
-    return minutos > UMBRAL_DEMORA_MIN;
-  });
-}
-
-function turno(req, res) {
-  const pedidos = pedidosData.getAll();
-  const repartidores = repartidoresData.getAll();
-  const { cantidadEntregados, totalFacturado } = calcularTotales(pedidos);
-
-  res.json({
-    pedidosPorEstado: contarPorEstado(pedidos),
-    entregados: cantidadEntregados,
-    totalFacturado,
-    tiempoPromedioEntregaMinutos: calcularTiempoPromedioEntrega(pedidos),
-    entregasPorRepartidor: calcularEntregasPorRepartidor(pedidos, repartidores),
-    pedidosDemorados: calcularDemorados(pedidos),
-  });
-}
-
-module.exports = { turno, UMBRAL_DEMORA_MIN };
